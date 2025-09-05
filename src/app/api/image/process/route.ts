@@ -3,23 +3,12 @@ import { generateText } from 'ai';
 import type { GeneratedFile } from 'ai';
 import { google } from '@/lib/gemini';
 import { instructionSchema, assertImageFile } from '@/lib/schema';
+import { SYSTEM_PROMPT } from '@/lib/prompt';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
-const SYSTEM_PROMPT = `Transform this photograph to emulate the distinct and timeless aesthetic of a legendary Leica M-series rangefinder camera paired with a fast prime lens like a Summilux.
-
-Core Rendering:
-Render the image with rich, analog color science—deep, clean blacks without crushing shadow detail, and soft, natural highlight roll-off. Introduce high micro-contrast across the entire tonal range to create a tactile, three-dimensional 'pop' that separates the subject from the background.
-
-Texture and Sharpness:
-Apply sharpness that is crisp and resolving at the point of focus, but entirely avoid artificial digital over-sharpening. Overlay a fine, organic film grain, reminiscent of classic Kodak Portra for color or Tri-X for monochrome, to add character and eliminate any digital sterility.
-
-Lens Characteristics:
-If applicable to the composition, create a shallow depth of field with a smooth, creamy, and painterly bokeh. Add a subtle, natural vignette to gently frame the subject.
-
-Final Mood and Exclusions:
-The final result must possess character and soul—feeling less like a digital capture and more like a classic, cinematic, and masterfully crafted photograph. Crucially, avoid any trace of a modern over-processed HDR look, digital noise reduction artifacts, or unnaturally smooth, plastic-like textures.`;
+// SYSTEM_PROMPT imported from '@/lib/prompt'
 
 export async function OPTIONS(req: NextRequest) {
   const origin = req.headers.get('origin') ?? undefined;
