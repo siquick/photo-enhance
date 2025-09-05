@@ -15,6 +15,7 @@ export default function UploadCard() {
   const [loading, setLoading] = useState(false);
   const [instruction, setInstruction] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [fileState, setFileState] = useState<File | null>(null);
@@ -59,7 +60,7 @@ export default function UploadCard() {
   const submit = async () => {
     const file = fileState ?? inputRef.current?.files?.[0] ?? null;
     if (!file) {
-      setError('Please select an image file');
+      setToast('Please select an image file');
       return;
     }
     const form = new FormData();
@@ -72,7 +73,7 @@ export default function UploadCard() {
       const json: ProcessImageResponse = await res.json();
       setLoading(false);
       if (!res.ok || 'error' in json) {
-        setError('error' in json ? json.error : 'Request failed');
+        setToast('error' in json ? json.error : 'Request failed');
         return;
       }
       if ('imageBase64' in json) {
@@ -81,7 +82,7 @@ export default function UploadCard() {
     } catch (e) {
       setLoading(false);
       const msg = e instanceof Error ? e.message : 'Network error';
-      setError(msg);
+      setToast(msg);
     }
   };
 
@@ -236,6 +237,13 @@ export default function UploadCard() {
   };
 
   const charCount = instruction.length;
+  const preset = (p: string) => {
+    // Replace or append concise preset guidance
+    const next = instruction ? `${instruction}\n${p}` : p;
+    setInstruction(next.slice(0, 500));
+    setToast(`Preset added: ${p.split(' ')[0]}`);
+    setTimeout(() => setToast(null), 1600);
+  };
 
   return (
     <Card className="mx-auto max-w-6xl border-white/10 bg-white/5 backdrop-blur-sm">
@@ -294,14 +302,28 @@ export default function UploadCard() {
               />
               <div className="mt-1 text-right text-xs text-foreground/50">{charCount}/500</div>
             </div>
+            <div className="flex flex-wrap gap-2">
+              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Render in Leica color with fine grain and gentle contrast.')}>Leica Color</button>
+              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Convert to monochrome with Tri‑X-like grain and tonal curve.')}>Tri‑X B&W</button>
+              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Portrait: preserve skin texture, soften shadows, subtle warm tone.')}>Portrait Soft</button>
+              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Street: higher micro‑contrast, deeper blacks, minimal saturation shift.')}>Street Contrast</button>
+              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Cinematic: gentle teal-orange balance, soft highlight roll-off, fine grain.')}>Cinematic</button>
+            </div>
 
-            <div className="flex gap-3">
+            <div className="hidden md:flex gap-3">
               <Button onClick={submit} disabled={loading}>
                 {loading ? 'Processing…' : 'Process Image'}
               </Button>
               <Button variant="secondary" onClick={() => { setOriginalSrc(null); setResultSrc(null); setFileState(null); setInstruction(''); setError(null); }}>
                 Reset
               </Button>
+            </div>
+            {/* Sticky bottom action bar on mobile */}
+            <div className="md:hidden fixed left-0 right-0 bottom-0 z-40 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-black/80 to-black/0">
+              <div className="flex gap-3">
+                <Button className="flex-1" onClick={submit} disabled={loading}>{loading ? 'Processing…' : 'Process'}</Button>
+                <Button className="flex-1" variant="secondary" onClick={() => { setOriginalSrc(null); setResultSrc(null); setFileState(null); setInstruction(''); setError(null); }}>Reset</Button>
+              </div>
             </div>
           </section>
 
@@ -370,8 +392,13 @@ export default function UploadCard() {
             )}
           </section>
         </div>
-        {error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        {/* Toast */}
+        {toast && (
+          <div className="fixed left-1/2 -translate-x-1/2 bottom-[max(16px,env(safe-area-inset-bottom))] z-50">
+            <div className="rounded-full bg-white text-black shadow px-4 py-2 text-sm animate-[fadeIn_.2s_ease]">
+              {toast}
+            </div>
+          </div>
         )}
         
         {lightboxSrc && (
