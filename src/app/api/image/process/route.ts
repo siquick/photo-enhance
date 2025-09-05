@@ -27,6 +27,16 @@ export async function POST(req: NextRequest) {
     const form = await req.formData();
     const file = form.get('image');
     const instruction = instructionSchema.parse(form.get('instruction') ?? undefined);
+    const presetKey = (form.get('preset') ?? undefined) as string | undefined;
+
+    const PRESET_TEXTS: Record<string, string> = {
+      leica: 'Render in Leica color with fine grain and gentle contrast.',
+      trix: 'Convert to monochrome with Tri‑X-like grain and tonal curve.',
+      portrait: 'Portrait: preserve skin texture, soften shadows, subtle warm tone.',
+      street: 'Street: higher micro‑contrast, deeper blacks, minimal saturation shift.',
+      cinematic: 'Cinematic: gentle teal‑orange balance, soft highlight roll‑off, fine grain.',
+    };
+    const presetText = presetKey ? PRESET_TEXTS[presetKey] : undefined;
 
     if (!(file instanceof File)) throw new Error('Missing image file');
     assertImageFile(file, Number(process.env.MAX_UPLOAD_MB ?? 8));
@@ -37,9 +47,9 @@ export async function POST(req: NextRequest) {
       | { type: 'text'; text: string }
       | { type: 'file'; data: Uint8Array; mediaType: string }
     > = [];
-    // Include the Leica system style as an explicit first user text part
-    // to ensure the instruction is always applied, regardless of provider handling.
-    content.push({ type: 'text', text: SYSTEM_PROMPT });
+    // Compose system + preset for robustness as first user text part.
+    const combinedSystem = presetText ? `${SYSTEM_PROMPT}\n\nPRESET STYLE:\n${presetText}` : SYSTEM_PROMPT;
+    content.push({ type: 'text', text: combinedSystem });
     if (instruction) content.push({ type: 'text', text: `Instruction: ${instruction}` });
     content.push({ type: 'file', data: bytes, mediaType: file.type });
 

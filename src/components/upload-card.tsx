@@ -25,14 +25,16 @@ export default function UploadCard() {
   const [capturedSrc, setCapturedSrc] = useState<string | null>(null);
   const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   // Camera UX state
-  const [sheetOffset, setSheetOffset] = useState(0); // bottom sheet drag offset (px)
-  const dragStartYRef = useRef<number | null>(null);
+  // Full-screen camera UI state
   const [focusRing, setFocusRing] = useState<{ x: number; y: number; show: boolean }>({ x: 0, y: 0, show: false });
   const [zoomSupported, setZoomSupported] = useState(false);
   const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 1, max: 1, step: 0.1 });
   const [zoom, setZoom] = useState(1); // logical zoom value
   const [fallbackScale, setFallbackScale] = useState(1); // CSS scale fallback
   const lastTwoTouchDistRef = useRef<number | null>(null);
+  // Preset (single-select)
+  type PresetKey = 'leica' | 'trix' | 'portrait' | 'street' | 'cinematic';
+  const [selectedPreset, setSelectedPreset] = useState<PresetKey | null>(null);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -65,6 +67,7 @@ export default function UploadCard() {
     }
     const form = new FormData();
     form.set('image', file);
+    if (selectedPreset) form.set('preset', selectedPreset);
     if (instruction) form.set('instruction', instruction);
     setLoading(true);
     setError(null);
@@ -216,33 +219,11 @@ export default function UploadCard() {
     if (lastTwoTouchDistRef.current) lastTwoTouchDistRef.current = null;
   };
 
-  // Bottom sheet drag to close (mobile)
-  const onSheetTouchStart: React.TouchEventHandler<HTMLDivElement> = (e) => {
-    dragStartYRef.current = e.touches[0].clientY;
-  };
-  const onSheetTouchMove: React.TouchEventHandler<HTMLDivElement> = (e) => {
-    if (dragStartYRef.current == null) return;
-    const dy = e.touches[0].clientY - dragStartYRef.current;
-    setSheetOffset(Math.max(0, dy));
-  };
-  const onSheetTouchEnd: React.TouchEventHandler<HTMLDivElement> = () => {
-    if (sheetOffset > 100) {
-      stopStream();
-      setCameraOpen(false);
-      setCapturedSrc(null);
-    } else {
-      setSheetOffset(0);
-    }
-    dragStartYRef.current = null;
-  };
+  // no bottom sheet; full-screen camera
 
   const charCount = instruction.length;
-  const preset = (p: string) => {
-    // Replace or append concise preset guidance
-    const next = instruction ? `${instruction}\n${p}` : p;
-    setInstruction(next.slice(0, 500));
-    setToast(`Preset added: ${p.split(' ')[0]}`);
-    setTimeout(() => setToast(null), 1600);
+  const togglePreset = (p: PresetKey) => {
+    setSelectedPreset(prev => (prev === p ? null : p));
   };
 
   return (
@@ -303,11 +284,28 @@ export default function UploadCard() {
               <div className="mt-1 text-right text-xs text-foreground/50">{charCount}/500</div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Render in Leica color with fine grain and gentle contrast.')}>Leica Color</button>
-              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Convert to monochrome with Tri‑X-like grain and tonal curve.')}>Tri‑X B&W</button>
-              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Portrait: preserve skin texture, soften shadows, subtle warm tone.')}>Portrait Soft</button>
-              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Street: higher micro‑contrast, deeper blacks, minimal saturation shift.')}>Street Contrast</button>
-              <button className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/10" onClick={() => preset('Cinematic: gentle teal-orange balance, soft highlight roll-off, fine grain.')}>Cinematic</button>
+              {[
+                ['leica','Leica Color'],
+                ['trix','Tri‑X B&W'],
+                ['portrait','Portrait Soft'],
+                ['street','Street Contrast'],
+                ['cinematic','Cinematic'],
+              ].map(([key, label]) => {
+                const active = selectedPreset === (key as PresetKey);
+                return (
+                  <button
+                    key={key}
+                    className={[
+                      'rounded-full px-3 py-1 text-xs border transition-colors',
+                      active ? 'bg-white text-black border-white' : 'border-white/15 hover:bg-white/10'
+                    ].join(' ')}
+                    onClick={() => togglePreset(key as PresetKey)}
+                    aria-pressed={active}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="hidden md:flex gap-3">
@@ -430,67 +428,62 @@ export default function UploadCard() {
         )}
 
         {cameraOpen && (
-          <div className="fixed inset-0 z-50 bg-black/60" role="dialog" aria-modal="true">
-            <div
-              className="absolute bottom-0 left-0 right-0 bg-black/95 rounded-t-2xl shadow-2xl"
-              style={{ transform: `translateY(${sheetOffset}px)` }}
-              onTouchStart={onSheetTouchStart}
-              onTouchMove={onSheetTouchMove}
-              onTouchEnd={onSheetTouchEnd}
-            >
-              <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-white/20" />
-              <div className="flex items-center justify-between p-3">
-              <div className="text-sm text-white/80">Camera</div>
+          <div className="fixed inset-0 z-50 bg-black" role="dialog" aria-modal="true">
+            {/* Top bar */}
+            <div className="absolute top-[max(8px,env(safe-area-inset-top))] left-0 right-0 flex items-center justify-between px-4">
               <button
-                aria-label="Close camera"
+                aria-label="Close"
                 onClick={() => { stopStream(); setCameraOpen(false); setCapturedSrc(null); }}
-                className="h-9 w-9 rounded-md bg-white text-black font-semibold"
+                className="h-9 rounded-full px-3 bg-white/10 text-white hover:bg-white/15 text-sm"
               >
-                ×
+                Close
               </button>
-              </div>
-              <div className="grid place-items-center p-3">
+              {!capturedSrc && (
+                <div className="text-xs text-white/80">Tap to focus • Pinch to zoom</div>
+              )}
+            </div>
+
+            {/* Live / Captured full-screen */}
+            <div
+              className="absolute inset-0"
+              onClick={onVideoTap}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+            >
+              {capturedSrc ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={capturedSrc} alt="captured" className="h-full w-full object-contain" />
+              ) : (
+                <video
+                  ref={videoRef}
+                  className="h-full w-full object-cover"
+                  style={{ transform: `scale(${fallbackScale})` }}
+                  autoPlay
+                  playsInline
+                  muted
+                />
+              )}
+              {focusRing.show && (
                 <div
-                  className="w-full max-w-md aspect-[3/4] bg-black rounded-xl overflow-hidden border border-white/10 relative"
-                  onClick={onVideoTap}
-                  onTouchStart={onTouchStart}
-                  onTouchMove={onTouchMove}
-                  onTouchEnd={onTouchEnd}
-                >
-                  {capturedSrc ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={capturedSrc} alt="captured" className="h-full w-full object-contain" />
-                  ) : (
-                    <video
-                      ref={videoRef}
-                      className="h-full w-full object-cover"
-                      style={{ transform: `scale(${fallbackScale})` }}
-                      autoPlay
-                      playsInline
-                      muted
-                    />
-                  )}
-                  {focusRing.show && (
-                    <div
-                      className="absolute pointer-events-none border-2 border-white rounded-full"
-                      style={{ width: 64, height: 64, left: focusRing.x - 32, top: focusRing.y - 32 }}
-                    />
-                  )}
+                  className="absolute pointer-events-none border-2 border-white rounded-full"
+                  style={{ width: 64, height: 64, left: focusRing.x - 32, top: focusRing.y - 32 }}
+                />
+              )}
+            </div>
+
+            {/* Bottom controls */}
+            <div className="absolute left-0 right-0 bottom-[max(10px,env(safe-area-inset-bottom))] flex items-center justify-center gap-6 px-6">
+              {!capturedSrc ? (
+                <>
+                  <button onClick={capturePhoto} aria-label="Capture" className="h-16 w-16 rounded-full bg-white shadow-[0_0_0_4px_rgba(0,0,0,0.6)]" />
+                </>
+              ) : (
+                <div className="flex gap-3 w-full max-w-md justify-center">
+                  <Button variant="secondary" onClick={() => setCapturedSrc(null)} className="flex-1">Retake</Button>
+                  <Button onClick={useCaptured} className="flex-1">Use Photo</Button>
                 </div>
-              </div>
-              <div className="p-3 flex items-center justify-center gap-3">
-                {!capturedSrc ? (
-                  <>
-                    <Button onClick={capturePhoto}>Capture</Button>
-                    <Button variant="secondary" onClick={() => { startStream(); }}>Retry Camera</Button>
-                  </>
-                ) : (
-                  <>
-                    <Button variant="secondary" onClick={() => setCapturedSrc(null)}>Retake</Button>
-                    <Button onClick={useCaptured}>Use Photo</Button>
-                  </>
-                )}
-              </div>
+              )}
             </div>
           </div>
         )}
