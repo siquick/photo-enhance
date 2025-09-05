@@ -23,6 +23,15 @@ export default function UploadCard() {
   const streamRef = useRef<MediaStream | null>(null);
   const [capturedSrc, setCapturedSrc] = useState<string | null>(null);
   const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // Camera UX state
+  const [sheetOffset, setSheetOffset] = useState(0); // bottom sheet drag offset (px)
+  const dragStartYRef = useRef<number | null>(null);
+  const [focusRing, setFocusRing] = useState<{ x: number; y: number; show: boolean }>({ x: 0, y: 0, show: false });
+  const [zoomSupported, setZoomSupported] = useState(false);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number }>({ min: 1, max: 1, step: 0.1 });
+  const [zoom, setZoom] = useState(1); // logical zoom value
+  const [fallbackScale, setFallbackScale] = useState(1); // CSS scale fallback
+  const lastTwoTouchDistRef = useRef<number | null>(null);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -94,9 +103,25 @@ export default function UploadCard() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-  } catch (_err) {
-    setError('Unable to access camera. Check permissions.');
-  }
+      // Detect zoom support
+      const [track] = stream.getVideoTracks();
+      const capsUnknown = (track.getCapabilities && track.getCapabilities()) as unknown as {
+        zoom?: number | { min?: number; max?: number; step?: number };
+      };
+      const zoomCaps = capsUnknown?.zoom as { min?: number; max?: number; step?: number } | number | undefined;
+      if (typeof zoomCaps === 'number' || (zoomCaps && typeof zoomCaps === 'object')) {
+        const min = (typeof zoomCaps === 'object' ? zoomCaps.min : undefined) ?? 1;
+        const max = (typeof zoomCaps === 'object' ? zoomCaps.max : undefined) ?? 5;
+        const step = (typeof zoomCaps === 'object' ? zoomCaps.step : undefined) ?? 0.1;
+        setZoomSupported(true);
+        setZoomRange({ min, max, step });
+        setZoom(Math.min(Math.max(zoom, min), max));
+      } else {
+        setZoomSupported(false);
+      }
+    } catch (_err) {
+      setError('Unable to access camera. Check permissions.');
+    }
   };
 
   const stopStream = () => {
@@ -124,6 +149,9 @@ export default function UploadCard() {
     ctx.drawImage(video, 0, 0, w, h);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     setCapturedSrc(dataUrl);
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try { (navigator as unknown as { vibrate?: (pattern: number | number[]) => boolean }).vibrate?.(30); } catch {}
+    }
     // Pause stream preview but keep tracks alive for retake
   };
 
@@ -146,6 +174,72 @@ export default function UploadCard() {
     setFileState(file);
     setCameraOpen(false);
     stopStream();
+  };
+
+  // Tap to focus ring (visual) and try to apply track constraints if supported
+  const onVideoTap: React.MouseEventHandler<HTMLDivElement> = (e) => {
+    const container = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - container.left;
+    const y = e.clientY - container.top;
+    setFocusRing({ x, y, show: true });
+    setTimeout(() => setFocusRing((r) => ({ ...r, show: false })), 900);
+  };
+
+  // Pinch to zoom (two-finger)
+  const onTouchStart: React.TouchEventHandler<HTMLDivElement> = (e) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastTwoTouchDistRef.current = Math.hypot(dx, dy);
+    }
+  };
+  const onTouchMove: React.TouchEventHandler<HTMLDivElement> = async (e) => {
+    if (e.touches.length === 2 && lastTwoTouchDistRef.current) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const delta = (dist - lastTwoTouchDistRef.current) / 150; // sensitivity
+      lastTwoTouchDistRef.current = dist;
+      if (zoomSupported && streamRef.current) {
+        const [track] = streamRef.current.getVideoTracks();
+        const next = Math.min(Math.max(zoom + delta, zoomRange.min), zoomRange.max);
+        try {
+          const constraints = { advanced: [{ zoom: next }] } as unknown as MediaTrackConstraints;
+          await track.applyConstraints(constraints);
+          setZoom(next);
+        } catch {
+          // fallback to CSS scale
+          const f = Math.min(Math.max(fallbackScale + delta, 1), 3);
+          setFallbackScale(f);
+        }
+      } else {
+        const f = Math.min(Math.max(fallbackScale + delta, 1), 3);
+        setFallbackScale(f);
+      }
+    }
+  };
+  const onTouchEnd: React.TouchEventHandler<HTMLDivElement> = () => {
+    if (lastTwoTouchDistRef.current) lastTwoTouchDistRef.current = null;
+  };
+
+  // Bottom sheet drag to close (mobile)
+  const onSheetTouchStart: React.TouchEventHandler<HTMLDivElement> = (e) => {
+    dragStartYRef.current = e.touches[0].clientY;
+  };
+  const onSheetTouchMove: React.TouchEventHandler<HTMLDivElement> = (e) => {
+    if (dragStartYRef.current == null) return;
+    const dy = e.touches[0].clientY - dragStartYRef.current;
+    setSheetOffset(Math.max(0, dy));
+  };
+  const onSheetTouchEnd: React.TouchEventHandler<HTMLDivElement> = () => {
+    if (sheetOffset > 100) {
+      stopStream();
+      setCameraOpen(false);
+      setCapturedSrc(null);
+    } else {
+      setSheetOffset(0);
+    }
+    dragStartYRef.current = null;
   };
 
   const charCount = instruction.length;
@@ -315,8 +409,16 @@ export default function UploadCard() {
         )}
 
         {cameraOpen && (
-          <div className="fixed inset-0 z-50 bg-black/95 flex flex-col" role="dialog" aria-modal="true">
-            <div className="flex items-center justify-between p-3">
+          <div className="fixed inset-0 z-50 bg-black/60" role="dialog" aria-modal="true">
+            <div
+              className="absolute bottom-0 left-0 right-0 bg-black/95 rounded-t-2xl shadow-2xl"
+              style={{ transform: `translateY(${sheetOffset}px)` }}
+              onTouchStart={onSheetTouchStart}
+              onTouchMove={onSheetTouchMove}
+              onTouchEnd={onSheetTouchEnd}
+            >
+              <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-white/20" />
+              <div className="flex items-center justify-between p-3">
               <div className="text-sm text-white/80">Camera</div>
               <button
                 aria-label="Close camera"
@@ -325,29 +427,49 @@ export default function UploadCard() {
               >
                 ×
               </button>
-            </div>
-            <div className="flex-1 grid place-items-center p-3">
-              <div className="w-full max-w-md aspect-[3/4] bg-black rounded-xl overflow-hidden border border-white/10">
-                {capturedSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={capturedSrc} alt="captured" className="h-full w-full object-contain" />
+              </div>
+              <div className="grid place-items-center p-3">
+                <div
+                  className="w-full max-w-md aspect-[3/4] bg-black rounded-xl overflow-hidden border border-white/10 relative"
+                  onClick={onVideoTap}
+                  onTouchStart={onTouchStart}
+                  onTouchMove={onTouchMove}
+                  onTouchEnd={onTouchEnd}
+                >
+                  {capturedSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={capturedSrc} alt="captured" className="h-full w-full object-contain" />
+                  ) : (
+                    <video
+                      ref={videoRef}
+                      className="h-full w-full object-cover"
+                      style={{ transform: `scale(${fallbackScale})` }}
+                      autoPlay
+                      playsInline
+                      muted
+                    />
+                  )}
+                  {focusRing.show && (
+                    <div
+                      className="absolute pointer-events-none border-2 border-white rounded-full"
+                      style={{ width: 64, height: 64, left: focusRing.x - 32, top: focusRing.y - 32 }}
+                    />
+                  )}
+                </div>
+              </div>
+              <div className="p-3 flex items-center justify-center gap-3">
+                {!capturedSrc ? (
+                  <>
+                    <Button onClick={capturePhoto}>Capture</Button>
+                    <Button variant="secondary" onClick={() => { startStream(); }}>Retry Camera</Button>
+                  </>
                 ) : (
-                  <video ref={videoRef} className="h-full w-full object-cover" autoPlay playsInline muted />
+                  <>
+                    <Button variant="secondary" onClick={() => setCapturedSrc(null)}>Retake</Button>
+                    <Button onClick={useCaptured}>Use Photo</Button>
+                  </>
                 )}
               </div>
-            </div>
-            <div className="p-3 flex items-center justify-center gap-3">
-              {!capturedSrc ? (
-                <>
-                  <Button onClick={capturePhoto}>Capture</Button>
-                  <Button variant="secondary" onClick={() => { startStream(); }}>Retry Camera</Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="secondary" onClick={() => setCapturedSrc(null)}>Retake</Button>
-                  <Button onClick={useCaptured}>Use Photo</Button>
-                </>
-              )}
             </div>
           </div>
         )}
