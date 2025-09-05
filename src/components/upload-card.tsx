@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -155,14 +155,7 @@ export default function UploadCard() {
     // Pause stream preview but keep tracks alive for retake
   };
 
-  // Default to camera on mobile for world-class photography app UX
-  useEffect(() => {
-    if (isMobile && !originalSrc && !resultSrc && !cameraOpen) {
-      // Attempt to open camera; if blocked, the error message will guide user
-      openCamera();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Note: do not auto-open camera on load; only via explicit user action.
 
   const useCaptured = async () => {
     if (!capturedSrc) return;
@@ -252,39 +245,40 @@ export default function UploadCard() {
       <CardContent className="space-y-6">
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
           <section className="lg:col-span-5 space-y-4">
-            <div
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={onDrop}
-              onClick={() => inputRef.current?.click()}
-              className={[
-                'group relative rounded-xl border border-dashed cursor-pointer transition-colors',
-                'border-white/15 hover:border-white/30 bg-white/[0.03] p-6',
-                isDragging ? 'border-white/50 bg-white/[0.06]' : '',
-              ].join(' ')}
-            >
-              <div className="pointer-events-none">
-                <div className="mx-auto grid place-items-center h-12 w-12 rounded-full bg-white/10 text-white/80">
+            <div className="rounded-2xl p-[1px] bg-gradient-to-b from-white/15 to-white/5">
+              <div
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={onDrop}
+                onClick={() => inputRef.current?.click()}
+                className={[
+                  'group relative rounded-xl border border-dashed cursor-pointer transition-colors',
+                  'border-white/15 hover:border-white/30 bg-white/[0.03] p-6',
+                  isDragging ? 'border-white/50 bg-white/[0.06]' : '',
+                ].join(' ')}
+              >
+                <div className="pointer-events-none">
+                  <div className="mx-auto grid place-items-center h-12 w-12 rounded-full bg-white/10 text-white/80">
                   {/* Clean camera icon */}
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.3c.3 0 .45 0 .6-.05.14-.05.27-.13.38-.25.11-.11.2-.25.35-.51l.16-.28c.19-.33.28-.5.42-.62a1.2 1.2 0 0 1 .5-.26C10.38 3.99 10.58 4 10.98 4h2.04c.4 0 .6 0 .81.03.18.03.35.1.5.21.14.1.23.25.42.57l.17.3c.16.29.24.44.35.56.1.1.23.18.37.23.17.05.33.05.64.05h1.33A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-7Z" fill="currentColor"/>
                     <circle cx="12" cy="12" r="3.75" fill="none" stroke="currentColor" strokeWidth="1.5"/>
                     <circle cx="18" cy="8" r="0.8" fill="currentColor"/>
                   </svg>
+                  </div>
+                  <div className="mt-4 text-center">
+                    <p className="text-sm font-medium">Tap to take a photo or upload</p>
+                    <p className="mt-1 text-xs text-foreground/60">PNG, JPG, or WebP — up to 8MB</p>
+                  </div>
                 </div>
-                <div className="mt-4 text-center">
-                  <p className="text-sm font-medium">Drop a photo here or click to upload</p>
-                  <p className="mt-1 text-xs text-foreground/60">PNG, JPG, or WebP — up to 8MB</p>
-                </div>
+                <input
+                  ref={inputRef}
+                  onChange={onFileChange}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                />
               </div>
-              <input
-                ref={inputRef}
-                onChange={onFileChange}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="sr-only"
-              />
             </div>
 
             <div className="flex gap-3">
