@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +22,7 @@ export default function UploadCard() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [capturedSrc, setCapturedSrc] = useState<string | null>(null);
+  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -79,14 +80,23 @@ export default function UploadCard() {
   const startStream = async () => {
     try {
       if (streamRef.current) return; // already running
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const constraints: MediaStreamConstraints = {
+        video: { facingMode: isMobile ? 'user' : 'environment' },
+      };
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        // Fallback: let the browser pick any camera
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
-    } catch (err) {
-      setError('Unable to access camera. Check permissions.');
-    }
+  } catch (_err) {
+    setError('Unable to access camera. Check permissions.');
+  }
   };
 
   const stopStream = () => {
@@ -116,6 +126,15 @@ export default function UploadCard() {
     setCapturedSrc(dataUrl);
     // Pause stream preview but keep tracks alive for retake
   };
+
+  // Default to camera on mobile for world-class photography app UX
+  useEffect(() => {
+    if (isMobile && !originalSrc && !resultSrc && !cameraOpen) {
+      // Attempt to open camera; if blocked, the error message will guide user
+      openCamera();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const useCaptured = async () => {
     if (!capturedSrc) return;
@@ -175,8 +194,8 @@ export default function UploadCard() {
             </div>
 
             <div className="flex gap-3">
+              <Button onClick={openCamera}>Use Camera</Button>
               <Button variant="secondary" onClick={() => inputRef.current?.click()}>Upload Photo</Button>
-              <Button variant="secondary" onClick={openCamera}>Use Camera</Button>
             </div>
 
             <div>
@@ -199,76 +218,66 @@ export default function UploadCard() {
           </section>
 
           <section className="lg:col-span-7">
-            {(originalSrc || resultSrc) ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <div className="mb-2 text-xs uppercase tracking-wide text-foreground/60">Before</div>
-                  <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {originalSrc && (
-                      <img
-                        src={originalSrc}
-                        alt="original"
-                        className="w-full h-auto object-contain cursor-zoom-in"
-                        onClick={() => setLightboxSrc(originalSrc)}
-                      />
-                    )}
-                  </div>
-                  {originalSrc && (
-                    <div className="mt-2">
-                      <a
-                        href={originalSrc}
-                        download="original.jpg"
-                        className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-white text-black hover:bg-white/90 h-9 px-3"
-                      >
-                        Download
-                      </a>
+            {resultSrc ? (
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-wide text-foreground/60">After</div>
+                <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={resultSrc}
+                    alt="edited"
+                    className="w-full h-auto object-contain cursor-zoom-in"
+                    onClick={() => setLightboxSrc(resultSrc)}
+                  />
+                  {loading && (
+                    <div className="absolute inset-0 grid place-items-center bg-black/30 backdrop-blur-[1px]">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
                     </div>
                   )}
                 </div>
-
-                <div>
-                  <div className="mb-2 text-xs uppercase tracking-wide text-foreground/60">After</div>
-                  <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {resultSrc ? (
-                      <img
-                        src={resultSrc}
-                        alt="edited"
-                        className="w-full h-auto object-contain cursor-zoom-in"
-                        onClick={() => setLightboxSrc(resultSrc)}
-                      />
-                    ) : (
-                      <div className="aspect-video w-full grid place-items-center text-sm text-foreground/60">No result yet</div>
-                    )}
-                    {loading && (
-                      <div className="absolute inset-0 grid place-items-center bg-black/30 backdrop-blur-[1px]">
-                        <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
-                      </div>
-                    )}
-                  </div>
-                  {resultSrc && (
-                    <div className="mt-2 flex gap-3">
-                      <a
-                        href={resultSrc}
-                        download="edited.jpg"
-                        className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-white text-black hover:bg-white/90 h-9 px-3"
-                      >
-                        Download
-                      </a>
-                      <button
-                        className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-white/10 text-white hover:bg-white/15 h-9 px-3"
-                        onClick={() => setShowCompare(true)}
-                      >
-                        Compare
-                      </button>
-                    </div>
+                <div className="mt-2 flex gap-3">
+                  <a
+                    href={resultSrc}
+                    download="edited.jpg"
+                    className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-white text-black hover:bg-white/90 h-9 px-3"
+                  >
+                    Download
+                  </a>
+                  {originalSrc && (
+                    <button
+                      className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-white/10 text-white hover:bg-white/15 h-9 px-3"
+                      onClick={() => setShowCompare(true)}
+                    >
+                      Compare
+                    </button>
                   )}
+                </div>
+              </div>
+            ) : originalSrc ? (
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-wide text-foreground/60">Preview</div>
+                <div className="relative overflow-hidden rounded-xl border border-white/10 bg-black/20">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={originalSrc}
+                    alt="original"
+                    className="w-full h-auto object-contain cursor-zoom-in"
+                    onClick={() => setLightboxSrc(originalSrc)}
+                  />
+                </div>
+                <div className="mt-2">
+                  <a
+                    href={originalSrc}
+                    download="original.jpg"
+                    className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-white text-black hover:bg-white/90 h-9 px-3"
+                  >
+                    Download
+                  </a>
                 </div>
               </div>
             ) : (
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-8 text-center text-foreground/60">
-                Your edits will appear here. Upload a photo to begin.
+                Your edits will appear here. Start with the camera or upload a photo.
               </div>
             )}
           </section>
