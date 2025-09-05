@@ -14,7 +14,7 @@ export default function UploadCard() {
   // Mime is managed on the server response; no local state needed.
   const [loading, setLoading] = useState(false);
   const [instruction, setInstruction] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -35,6 +35,11 @@ export default function UploadCard() {
   // Preset (single-select)
   type PresetKey = 'leica' | 'trix' | 'portrait' | 'street' | 'cinematic';
   const [selectedPreset, setSelectedPreset] = useState<PresetKey | null>(null);
+  const [showGrid, setShowGrid] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const [pulse, setPulse] = useState(false);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -111,6 +116,7 @@ export default function UploadCard() {
       const [track] = stream.getVideoTracks();
       const capsUnknown = (track.getCapabilities && track.getCapabilities()) as unknown as {
         zoom?: number | { min?: number; max?: number; step?: number };
+        torch?: boolean;
       };
       const zoomCaps = capsUnknown?.zoom as { min?: number; max?: number; step?: number } | number | undefined;
       if (typeof zoomCaps === 'number' || (zoomCaps && typeof zoomCaps === 'object')) {
@@ -123,7 +129,9 @@ export default function UploadCard() {
       } else {
         setZoomSupported(false);
       }
-    } catch (_err) {
+      // Torch support
+      setTorchSupported(Boolean((capsUnknown as { torch?: boolean } | undefined)?.torch));
+    } catch {
       setError('Unable to access camera. Check permissions.');
     }
   };
@@ -153,6 +161,8 @@ export default function UploadCard() {
     ctx.drawImage(video, 0, 0, w, h);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     setCapturedSrc(dataUrl);
+    setFlash(true); setTimeout(() => setFlash(false), 140);
+    setPulse(true); setTimeout(() => setPulse(false), 220);
     if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
       try { (navigator as unknown as { vibrate?: (pattern: number | number[]) => boolean }).vibrate?.(30); } catch {}
     }
@@ -224,6 +234,18 @@ export default function UploadCard() {
   const charCount = instruction.length;
   const togglePreset = (p: PresetKey) => {
     setSelectedPreset(prev => (prev === p ? null : p));
+  };
+
+  const toggleTorch = async () => {
+    if (!streamRef.current) return;
+    const [track] = streamRef.current.getVideoTracks();
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torchOn }] } as unknown as MediaTrackConstraints);
+      setTorchOn(!torchOn);
+    } catch {
+      setToast('Torch not available');
+      setTimeout(() => setToast(null), 1400);
+    }
   };
 
   return (
@@ -316,13 +338,15 @@ export default function UploadCard() {
                 Reset
               </Button>
             </div>
-            {/* Sticky bottom action bar on mobile */}
-            <div className="md:hidden fixed left-0 right-0 bottom-0 z-40 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-black/80 to-black/0">
-              <div className="flex gap-3">
-                <Button className="flex-1" onClick={submit} disabled={loading}>{loading ? 'Processing…' : 'Process'}</Button>
-                <Button className="flex-1" variant="secondary" onClick={() => { setOriginalSrc(null); setResultSrc(null); setFileState(null); setInstruction(''); setError(null); }}>Reset</Button>
+            {/* Page-level mobile action bar (truly floating) */}
+            {(!cameraOpen) && (
+              <div className="md:hidden fixed left-0 right-0 bottom-0 z-40 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
+                <div className="flex gap-3 pointer-events-auto">
+                  <Button className="flex-1" onClick={submit} disabled={loading}>{loading ? 'Processing…' : 'Process'}</Button>
+                  <Button className="flex-1" variant="secondary" onClick={() => { setOriginalSrc(null); setResultSrc(null); setFileState(null); setInstruction(''); setError(null); }}>Reset</Button>
+                </div>
               </div>
-            </div>
+            )}
           </section>
 
           <section className="lg:col-span-7">
@@ -439,7 +463,21 @@ export default function UploadCard() {
                 Close
               </button>
               {!capturedSrc && (
-                <div className="text-xs text-white/80">Tap to focus • Pinch to zoom</div>
+                <div className="flex items-center gap-2 text-xs text-white/80">
+                  <button
+                    onClick={() => setShowGrid(s => !s)}
+                    className="rounded-full px-2 py-1 bg-white/10 hover:bg-white/15"
+                    aria-pressed={showGrid}
+                  >Grid</button>
+                  {torchSupported && (
+                    <button
+                      onClick={toggleTorch}
+                      className="rounded-full px-2 py-1 bg-white/10 hover:bg-white/15"
+                      aria-pressed={torchOn}
+                    >Torch</button>
+                  )}
+                  <span className="opacity-70 hidden sm:inline">Tap to focus • Pinch to zoom</span>
+                </div>
               )}
             </div>
 
@@ -470,13 +508,21 @@ export default function UploadCard() {
                   style={{ width: 64, height: 64, left: focusRing.x - 32, top: focusRing.y - 32 }}
                 />
               )}
+              {showGrid && !capturedSrc && (
+                <div className="absolute inset-0 pointer-events-none opacity-40">
+                  <div className="absolute inset-y-0 left-1/3 w-px bg-white/40" />
+                  <div className="absolute inset-y-0 left-2/3 w-px bg-white/40" />
+                  <div className="absolute inset-x-0 top-1/3 h-px bg-white/40" />
+                  <div className="absolute inset-x-0 top-2/3 h-px bg-white/40" />
+                </div>
+              )}
             </div>
 
             {/* Bottom controls */}
             <div className="absolute left-0 right-0 bottom-[max(10px,env(safe-area-inset-bottom))] flex items-center justify-center gap-6 px-6">
               {!capturedSrc ? (
                 <>
-                  <button onClick={capturePhoto} aria-label="Capture" className="h-16 w-16 rounded-full bg-white shadow-[0_0_0_4px_rgba(0,0,0,0.6)]" />
+                  <button onClick={capturePhoto} aria-label="Capture" className="h-16 w-16 rounded-full bg-white shadow-[0_0_0_4px_rgba(0,0,0,0.6)]" style={{ animation: pulse ? 'pulseCapture .22s ease' : undefined }} />
                 </>
               ) : (
                 <div className="flex gap-3 w-full max-w-md justify-center">
@@ -485,6 +531,7 @@ export default function UploadCard() {
                 </div>
               )}
             </div>
+            {flash && <div className="pointer-events-none absolute inset-0 bg-white" style={{ animation: 'flash .14s ease' }} />}
           </div>
         )}
       </CardContent>
